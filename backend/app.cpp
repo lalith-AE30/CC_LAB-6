@@ -1,11 +1,15 @@
 #include <iostream>
 #include <cstring>
 #include <string>
+#include <csignal>
+#include <cerrno>
 #include <unistd.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 
 int main() {
+    std::signal(SIGPIPE, SIG_IGN);
+
     char hostname[256];
     if (gethostname(hostname, sizeof(hostname)) != 0) {
         std::cerr << "ERROR: Failed to get hostname" << std::endl;
@@ -51,14 +55,47 @@ int main() {
     while(true) {
         int client_fd = accept(server_fd, NULL, NULL);
         if (client_fd < 0) continue;
+
+        std::string request;
+        request.reserve(1024);
+        char buffer[1024];
+        while (request.find("\r\n\r\n") == std::string::npos && request.size() < 8192) {
+            ssize_t bytes_read = recv(client_fd, buffer, sizeof(buffer), 0);
+            if (bytes_read > 0) {
+                request.append(buffer, static_cast<size_t>(bytes_read));
+                continue;
+            }
+            if (bytes_read == 0) {
+                break;
+            }
+            if (errno == EINTR) {
+                continue;
+            }
+            break;
+        }
         
         // Simple HTTP response
+        std::string body = "Served by backend: " + std::string(hostname) + "\n";
         std::string response = "HTTP/1.1 200 OK\r\n";
         response += "Content-Type: text/plain\r\n";
+        response += "Content-Length: " + std::to_string(body.size()) + "\r\n";
         response += "Connection: close\r\n\r\n";
-        response += "Served by backend: " + std::string(hostname) + "\n";
+        response += body;
         
-        send(client_fd, response.c_str(), response.length(), 0);
+        size_t sent = 0;
+        while (sent < response.size()) {
+            ssize_t n = send(client_fd, response.c_str() + sent, response.size() - sent, MSG_NOSIGNAL);
+            if (n > 0) {
+                sent += static_cast<size_t>(n);
+                continue;
+            }
+            if (n < 0 && errno == EINTR) {
+                continue;
+            }
+            break;
+        }
+
+        shutdown(client_fd, SHUT_WR);
         close(client_fd);
     }
     
