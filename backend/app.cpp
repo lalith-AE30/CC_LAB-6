@@ -1,12 +1,16 @@
 #include <iostream>
 #include <cstring>
+#include <string>
 #include <unistd.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 
 int main() {
     char hostname[256];
-    gethostname(hostname, sizeof(hostname));
+    if (gethostname(hostname, sizeof(hostname)) != 0) {
+        std::cerr << "ERROR: Failed to get hostname" << std::endl;
+        return 1;
+    }
     hostname[255] = '\0';
     
     // Create socket
@@ -17,21 +21,27 @@ int main() {
     }
     
     int opt = 1;
-    setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+    if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
+        std::cerr << "ERROR: Failed to set socket options" << std::endl;
+        close(server_fd);
+        return 1;
+    }
     
     // Bind to port 8080
-    struct sockaddr_in address;
+    struct sockaddr_in address{};
     address.sin_family = AF_INET;
     address.sin_addr.s_addr = INADDR_ANY;
     address.sin_port = htons(8080);
     
     if (bind(server_fd, (struct sockaddr *)&address, sizeof(address)) < 0) {
         std::cerr << "ERROR: Failed to bind to port 8080" << std::endl;
+        close(server_fd);
         return 1;
     }
     
     if (listen(server_fd, 10) < 0) {
         std::cerr << "ERROR: Failed to listen on port 8080" << std::endl;
+        close(server_fd);
         return 1;
     }
     
