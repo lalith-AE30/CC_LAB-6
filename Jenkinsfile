@@ -4,8 +4,8 @@ pipeline {
         stage('Build Backend Image') {
             steps {
                 sh '''
-                docker rmi --load -f backend-app || true
-                docker build -t backend-app backend
+                docker rmi -f backend-app || true
+                docker build --load -t backend-app backend
                 '''
             }
         }
